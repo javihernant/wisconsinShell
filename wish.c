@@ -23,7 +23,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
     char * right_piece=cmd; //chop the command in left side for the command and the right for the piping files. 
     strsep(&right_piece, ">");
     if(right_piece!=NULL){
-        printf("there is a right piece!\n");
+        // printf("there is a right piece!\n");
         //check for multiple >
         char * pipe_error=right_piece;
         strsep(&pipe_error, ">");
@@ -44,6 +44,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
                 return;
             }
         }
+        
 
         pipe_active=1;
 
@@ -86,6 +87,10 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
     }
 
     if (strcmp(my_argv[0], "exit") == 0){
+        if(my_argc > 1){
+            print_error();
+            return;
+        }
         exit(0);
     }else if (strcmp(my_argv[0], "cd") == 0){
         // printf("change directory\n");
@@ -128,6 +133,30 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
         }
     
     }else{
+        //traverse path array to find one that contains given program
+
+        int found_program = 0;
+        char path2program[100];
+        for(int i=0; i<*pathc; i++){
+            strcpy(path2program,pathv[i]);
+
+            if(pathv[i][strlen(pathv[i])-1] != '/'){
+                strcat(path2program, "/");
+            }
+            strcat(path2program, my_argv[0]);
+            // printf("looking at %s\n",path2program);
+
+            if(access(path2program, X_OK)==0){
+                found_program = 1;
+                break;
+            }
+        }
+
+        if(!found_program){
+            print_error();
+            return;
+        }
+        
         int rc= fork();
         if(rc<0){
             fprintf(stderr, "fork failed\n");
@@ -136,30 +165,6 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
         }else if(rc==0){
             //child process runs external commands.    
             // printf("Hello, I'm child process:%d\n",(int) getpid());
-
-            //traverse path array to find one that contains given program
-
-            int found_program = 0;
-            char path2program[100];
-            for(int i=0; i<*pathc; i++){
-                strcpy(path2program,pathv[i]);
-    
-                if(pathv[i][strlen(pathv[i])-1] != '/'){
-                    strcat(path2program, "/");
-                }
-                strcat(path2program, my_argv[0]);
-                // printf("looking at %s\n",path2program);
-
-                if(access(path2program, X_OK)==0){
-                    found_program = 1;
-                    break;
-                }
-            }
-
-            if(!found_program){
-                print_error();
-                return;
-            }
 
             if(pipe_active){
                 int fd;
@@ -186,12 +191,11 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
                 
             }
 
-            my_argv[0] = path2program;
             execv(path2program, my_argv);
 
-            for(int i=0; i<my_argc; i++){
-                printf("%s\n",my_argv[i]);
-            }   
+            // for(int i=0; i<my_argc; i++){
+            //     printf("%s\n",my_argv[i]);
+            // }   
 
             exit(0);
         }else{
@@ -208,8 +212,17 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 int main(int argc, char *argv[]) {
     assert(argc <= 2);
     int interactive_mode = argc==1 ? 1 : 0;
+    FILE *stream;
     if(interactive_mode){
+        stream = stdin;
         printf("wish> ");
+        
+    }else{
+        stream = fopen(argv[1], "r");
+        if(stream == NULL){
+            fprintf(stderr, "fopen: error opening file\n");
+            exit(1);
+        }
     }
 
     int pathc = 1; //number of paths stored
@@ -219,7 +232,7 @@ int main(int argc, char *argv[]) {
     size_t n=0;
     char * cmd = NULL;
     
-    while((n=getline(&cmd,&n,stdin))!= -1){
+    while((n=getline(&cmd,&n,stream))!= -1){
         
         char * begin=cmd;
         char * end=cmd;
