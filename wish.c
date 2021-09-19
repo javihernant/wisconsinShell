@@ -61,7 +61,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 
         if((*begin != '\0')&&(*begin != ' ')){
 
-            if(my_argc>=my_argv_size){
+            if(my_argc+1>=my_argv_size){
 
                 my_argv_size *= 2;
                 char ** tmp_argv = realloc(my_argv, my_argv_size*sizeof(char *));
@@ -79,6 +79,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
         begin=end;
 
     }
+    my_argv[my_argc] = NULL;
 
     if(my_argc==0){
         return;
@@ -87,7 +88,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
     if (strcmp(my_argv[0], "exit") == 0){
         exit(0);
     }else if (strcmp(my_argv[0], "cd") == 0){
-        printf("change directory\n");
+        // printf("change directory\n");
         if(my_argc != 2){
             print_error();
             return;
@@ -99,7 +100,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 
     
     }else if (strcmp(my_argv[0], "path") == 0){
-        printf("change path\n");
+        // printf("change path\n");
         *pathc=0;
         int do_realloc = 0;
         //if paths limit has been exceeded, realloc a bigger path array
@@ -122,7 +123,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
         //store paths in path array
         for(int i=1; i<my_argc;i++){
             // printf("pathc:%d",*pathc);
-            pathv[*pathc] = my_argv[i]; 
+            pathv[*pathc] = strdup(my_argv[i]); 
             *pathc+=1;
         }
     
@@ -133,8 +134,33 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             exit(1);
 
         }else if(rc==0){
-            //child process runs non-built-in commands.    
-            printf("Hello, I'm child process:%d\n",(int) getpid());
+            //child process runs external commands.    
+            // printf("Hello, I'm child process:%d\n",(int) getpid());
+
+            //traverse path array to find one that contains given program
+
+            int found_program = 0;
+            char path2program[100];
+            for(int i=0; i<*pathc; i++){
+                strcpy(path2program,pathv[i]);
+    
+                if(pathv[i][strlen(pathv[i])-1] != '/'){
+                    strcat(path2program, "/");
+                }
+                strcat(path2program, my_argv[0]);
+                // printf("looking at %s\n",path2program);
+
+                if(access(path2program, X_OK)==0){
+                    found_program = 1;
+                    break;
+                }
+            }
+
+            if(!found_program){
+                print_error();
+                return;
+            }
+
             if(pipe_active){
                 int fd;
                 if((fd= open(right_piece, O_CREAT|O_TRUNC|O_RDWR,S_IRWXU))==-1){
@@ -160,6 +186,9 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
                 
             }
 
+            my_argv[0] = path2program;
+            execv(path2program, my_argv);
+
             for(int i=0; i<my_argc; i++){
                 printf("%s\n",my_argv[i]);
             }   
@@ -167,7 +196,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             exit(0);
         }else{
             int rc_wait = wait(NULL);
-            printf("I'm parent(pid:%d). Done waiting child (pid:%d). rc_wait:%d\n",(int) getpid(), rc, rc_wait);
+            // printf("I'm parent(pid:%d). Done waiting child (pid:%d). rc_wait:%d\n",(int) getpid(), rc, rc_wait);
         }
 
     }
@@ -192,7 +221,14 @@ int main(int argc, char *argv[]) {
     
     while((n=getline(&cmd,&n,stdin))!= -1){
         
-        execute_cmd(cmd,pathv,&pathc,&pathc_limit);
+        char * begin=cmd;
+        char * end=cmd;
+        while(begin != NULL){
+            strsep(&end,"&");
+            execute_cmd(begin,pathv,&pathc,&pathc_limit);
+            begin = end;
+        }
+        
         
         if(interactive_mode){
             printf("wish> ");
