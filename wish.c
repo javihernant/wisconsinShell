@@ -16,7 +16,7 @@ void print_error(){
     write(STDERR_FILENO, error_message, strlen(error_message)); 
 }
 
-void execute_cmd(char * cmd, size_t size){
+void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 
     // printf("%s",cmd);
     int pipe_active=0;
@@ -52,25 +52,28 @@ void execute_cmd(char * cmd, size_t size){
     char * begin = cmd;
     char * end = cmd;
     int my_argc = 0;
-    int my_args_size = 10;
-    char ** my_args = malloc(my_args_size*sizeof(char *));
+    int my_argv_size = 10;
+    char ** my_argv = malloc(my_argv_size*sizeof(char *));
 
-    //store each argument in my_args array
+    //store each argument in my_argv array
     while(begin != NULL){
         strsep(&end," \n\t");
 
         if((*begin != '\0')&&(*begin != ' ')){
 
-            if(my_argc>=my_args_size){
+            if(my_argc>=my_argv_size){
 
-                my_args_size *= 2;
-                my_args = realloc(my_args, my_args_size*sizeof(char *));
-                
-                if(my_args == NULL){
-                    printf("realloc failed");
+                my_argv_size *= 2;
+                char ** tmp_argv = realloc(my_argv, my_argv_size*sizeof(char *));
+                if (tmp_argv != NULL) {
+                    my_argv = tmp_argv;
+                } else {
+                    fprintf(stderr, "realloc failed\n");
+                    exit(1);
                 }
+                
             }
-            my_args[my_argc++] = begin;
+            my_argv[my_argc++] = begin;
         }
         
         begin=end;
@@ -81,13 +84,47 @@ void execute_cmd(char * cmd, size_t size){
         return;
     }
 
-    if (strcmp(my_args[0], "exit") == 0){
+    if (strcmp(my_argv[0], "exit") == 0){
         exit(0);
-    }else if (strcmp(my_args[0], "cd") == 0){
+    }else if (strcmp(my_argv[0], "cd") == 0){
         printf("change directory\n");
+        if(my_argc != 2){
+            print_error();
+            return;
+        }
+        if (chdir(my_argv[1])!=0){
+            print_error();
+            return;
+        }
+
     
-    }else if (strcmp(my_args[0], "path") == 0){
+    }else if (strcmp(my_argv[0], "path") == 0){
         printf("change path\n");
+        *pathc=0;
+        int do_realloc = 0;
+        //if paths limit has been exceeded, realloc a bigger path array
+        while(my_argc-1 > *pathc_limit){
+            do_realloc = 1;
+            *pathc_limit*=2;
+        }
+
+        if(do_realloc){
+            char ** tmp_pathv = realloc(pathv,*pathc_limit*sizeof(char*));
+            if (tmp_pathv != NULL) {
+                pathv = tmp_pathv;
+            } else {
+                fprintf(stderr, "realloc failed\n");
+                exit(1);
+            }
+            
+        }
+
+        //store paths in path array
+        for(int i=1; i<my_argc;i++){
+            // printf("pathc:%d",*pathc);
+            pathv[*pathc] = my_argv[i]; 
+            *pathc+=1;
+        }
     
     }else{
         int rc= fork();
@@ -124,7 +161,7 @@ void execute_cmd(char * cmd, size_t size){
             }
 
             for(int i=0; i<my_argc; i++){
-                printf("%s\n",my_args[i]);
+                printf("%s\n",my_argv[i]);
             }   
 
             exit(0);
@@ -134,7 +171,8 @@ void execute_cmd(char * cmd, size_t size){
         }
 
     }
-
+    
+    free(my_argv);
 
 }
 
@@ -145,19 +183,30 @@ int main(int argc, char *argv[]) {
         printf("wish> ");
     }
 
+    int pathc = 1; //number of paths stored
+    size_t pathc_limit = 10;
+    char ** pathv = malloc(pathc_limit * sizeof(char*));
+    pathv[0] = strdup("/bin");
     size_t n=0;
     char * cmd = NULL;
     
     while((n=getline(&cmd,&n,stdin))!= -1){
         
-        execute_cmd(cmd,n);
+        execute_cmd(cmd,pathv,&pathc,&pathc_limit);
         
         if(interactive_mode){
             printf("wish> ");
         }
         
     }
+
+    //free memory for first path, remaings are in cmd
+    free(pathv[0]);
     
+    //free array containing pointers to paths
+    free(pathv);
+
+    //free line of commands
     free(cmd);
     exit(0);
 }
