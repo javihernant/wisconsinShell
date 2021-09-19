@@ -18,6 +18,8 @@ void print_error(){
 
 void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 
+    char * begin;
+    char * end;
     // printf("%s",cmd);
     int pipe_active=0;
     char * right_piece=cmd; //chop the command in left side for the command and the right for the piping files. 
@@ -32,17 +34,24 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             return;
         }
         //check for multiple files. Assume no spaces after '>'. i.e (> file1) not allowed. 
-        pipe_error=right_piece;
-        int passed_space = 0;
-        for(; *pipe_error!='\0'; pipe_error++){
-            if(!passed_space && (*pipe_error == ' ' || *pipe_error == '\t' || *pipe_error == '\n')){
-                passed_space = 1;
-            }
+        begin=right_piece;
+        end=right_piece;
+        int filec=0;
+        while(begin != NULL){
+            strsep(&end," \n\t");
 
-            if(passed_space && (*pipe_error != ' ' && *pipe_error != '\t' && *pipe_error != '\n')){
-                print_error();
-                return;
+            if((*begin != '\0')&&(*begin != ' ')){
+                filec+=1;
             }
+            
+            begin=end;
+
+        }
+
+
+        if(filec!=1){
+            print_error();
+            return;
         }
         
 
@@ -50,8 +59,8 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 
     }
 
-    char * begin = cmd;
-    char * end = cmd;
+    begin = cmd;
+    end = cmd;
     int my_argc = 0;
     int my_argv_size = 10;
     char ** my_argv = malloc(my_argv_size*sizeof(char *));
