@@ -16,7 +16,7 @@ void print_error(){
     write(STDERR_FILENO, error_message, strlen(error_message)); 
 }
 
-void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
+void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit, char ** prev_right_piece){
 
     char * begin;
     char * end;
@@ -33,7 +33,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             print_error();
             return;
         }
-        //check for multiple files. Assume no spaces after '>'. i.e (> file1) not allowed. 
+        //check for multiple files or no files at all. 
         begin=right_piece;
         end=right_piece;
         int filec=0;
@@ -41,6 +41,7 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             strsep(&end," \n\t");
 
             if((*begin != '\0')&&(*begin != ' ')){
+                right_piece = begin;
                 filec+=1;
             }
             
@@ -91,6 +92,12 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
     }
     my_argv[my_argc] = NULL;
 
+    if(pipe_active && my_argc==0){
+        print_error();
+        return;
+    }
+
+    //if command line is empty, return and keep reading lines.
     if(my_argc==0){
         return;
     }
@@ -115,6 +122,11 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
     
     }else if (strcmp(my_argv[0], "path") == 0){
         // printf("change path\n");
+        //free memory for each char * pointer in pathv
+        for(int i=0; i<*pathc; i++){
+            free(pathv[i]);
+        }
+
         *pathc=0;
         int do_realloc = 0;
         //if paths limit has been exceeded, realloc a bigger path array
@@ -165,6 +177,18 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             print_error();
             return;
         }
+
+        if(pipe_active){
+            if(*prev_right_piece == NULL){
+                    *prev_right_piece = strdup(right_piece);
+
+            }else{
+                if(strcmp(right_piece,*prev_right_piece)==0){
+                    return;
+                }
+            }
+        }
+        
         
         int rc= fork();
         if(rc<0){
@@ -176,9 +200,11 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
             // printf("Hello, I'm child process:%d\n",(int) getpid());
 
             if(pipe_active){
+                
                 int fd;
                 if((fd= open(right_piece, O_CREAT|O_TRUNC|O_RDWR,S_IRWXU))==-1){
-                    printf("open:%s",strerror(errno));
+                    printf("open:%s\n",strerror(errno));
+                    printf("directory:%s\n",right_piece);
                     exit(1);
                 }
 
@@ -219,7 +245,10 @@ void execute_cmd(char * cmd, char ** pathv, int * pathc, size_t * pathc_limit){
 }
 
 int main(int argc, char *argv[]) {
-    assert(argc <= 2);
+    if(argc > 2){
+        print_error();
+        exit(1);
+    }
     int interactive_mode = argc==1 ? 1 : 0;
     FILE *stream;
     if(interactive_mode){
@@ -229,7 +258,7 @@ int main(int argc, char *argv[]) {
     }else{
         stream = fopen(argv[1], "r");
         if(stream == NULL){
-            fprintf(stderr, "fopen: error opening file\n");
+            print_error();
             exit(1);
         }
     }
@@ -241,13 +270,14 @@ int main(int argc, char *argv[]) {
     size_t n=0;
     char * cmd = NULL;
     
+    char * prev_right_piece = NULL;
     while((n=getline(&cmd,&n,stream))!= -1){
         
         char * begin=cmd;
         char * end=cmd;
         while(begin != NULL){
             strsep(&end,"&");
-            execute_cmd(begin,pathv,&pathc,&pathc_limit);
+            execute_cmd(begin,pathv,&pathc,&pathc_limit, &prev_right_piece);
             begin = end;
         }
         
@@ -257,10 +287,8 @@ int main(int argc, char *argv[]) {
         }
         
     }
-
-    //free memory for first path, remaings are in cmd
-    free(pathv[0]);
     
+    free(prev_right_piece);
     //free array containing pointers to paths
     free(pathv);
 
